@@ -250,16 +250,60 @@ def averageSeriesWithWildcards(requestContext, seriesList, *positions):
     return result
 
 
+def multiplySeriesWithWildcards(requestContext, seriesList, *position):
+    """
+    Call multiplySeries after inserting wildcards at the given position(s).
+
+    Example::
+
+        &target=multiplySeriesWithWildcards(
+            web.host-[0-7].{avg-response,total-request}.value, 2)
+
+    This would be the equivalent of::
+
+        &target=multiplySeries(web.host-0.{avg-response,total-request}.value)
+        &target=multiplySeries(web.host-1.{avg-response,total-request}.value)
+        ...
+    """
+    positions = [position] if isinstance(position, int) else position
+
+    newSeries = {}
+    newNames = []
+
+    for series in seriesList:
+        new_name = ".".join(map(lambda x: x[1],
+                                filter(lambda i: i[0] not in positions,
+                                       enumerate(series.name.split('.')))))
+
+        if new_name in newSeries:
+            [newSeries[new_name]] = multiplySeries(requestContext,
+                                                   (newSeries[new_name],
+                                                    series))
+        else:
+            newSeries[new_name] = series
+            newNames.append(new_name)
+        newSeries[new_name].name = new_name
+    return [newSeries[name] for name in newNames]
+
+
 def diffSeries(requestContext, *seriesLists):
     """
-    Can take two or more metrics.
-    Subtracts parameters 2 through n from parameter 1.
+    Subtracts series 2 through n from series 1.
 
     Example::
 
         &target=diffSeries(service.connections.total,
                            service.connections.failed)
 
+    To diff a series and a constant, one should use offset instead of
+    (or in addition to) diffSeries.
+
+    Example::
+
+        &target=offset(service.connections.total, -5)
+
+        &target=offset(diffSeries(service.connections.total,
+                                  service.connections.failed), -4)
     """
     if not seriesLists or seriesLists == ([],):
         return []
@@ -2559,7 +2603,7 @@ def isNonNull(requestContext, seriesList):
     return seriesList
 
 
-def identity(requestContext, name):
+def identity(requestContext, name, step=60):
     """
     Identity function:
     Returns datapoints where the value equals the timestamp of the datapoint.
@@ -2572,8 +2616,10 @@ def identity(requestContext, name):
 
     This would create a series named "The.time.series" that contains points
     where x(t) == t.
+
+    Accepts optional second argument as 'step' parameter (default step is
+    60 sec)
     """
-    step = 60
     start = int(epoch(requestContext["startTime"]))
     end = int(epoch(requestContext["endTime"]))
     values = range(start, end, step)
@@ -3061,7 +3107,7 @@ def hitcount(requestContext, seriesList, intervalString,
     return results
 
 
-def sinFunction(requestContext, name, amplitude=1):
+def sinFunction(requestContext, name, amplitude=1, step=60):
     """
     Short Alias: sin()
 
@@ -3073,8 +3119,9 @@ def sinFunction(requestContext, name, amplitude=1):
         &target=sin("The.time.series", 2)
 
     This would create a series named "The.time.series" that contains sin(x)*2.
+
+    A third argument can be provided as a step parameter (default is 60 secs).
     """
-    step = 60
     delta = timedelta(seconds=step)
     when = requestContext["startTime"]
     values = []
@@ -3091,7 +3138,7 @@ def sinFunction(requestContext, name, amplitude=1):
     return [series]
 
 
-def randomWalkFunction(requestContext, name):
+def randomWalkFunction(requestContext, name, step=60):
     """
     Short Alias: randomWalk()
 
@@ -3104,8 +3151,10 @@ def randomWalkFunction(requestContext, name):
 
     This would create a series named "The.time.series" that contains points
     where x(t) == x(t-1)+random()-0.5, and x(0) == 0.
+
+    Accepts an optional second argument as step parameter (default step is
+    60 sec).
     """
-    step = 60
     delta = timedelta(seconds=step)
     when = requestContext["startTime"]
     values = []
@@ -3149,6 +3198,7 @@ SeriesFunctions = {
     'avg': averageSeries,
     'sumSeriesWithWildcards': sumSeriesWithWildcards,
     'averageSeriesWithWildcards': averageSeriesWithWildcards,
+    'multiplySeriesWithWildcards': multiplySeriesWithWildcards,
     'minSeries': minSeries,
     'maxSeries': maxSeries,
     'rangeOfSeries': rangeOfSeries,
